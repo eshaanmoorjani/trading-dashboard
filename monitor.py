@@ -588,12 +588,30 @@ def process_scan(state, discovered, first_cycle=False):
             vessel["dark_since"] = None
             vessel["dark_alerted"] = False
 
-        # ── ZONE CHANGE (while visible) ──
-        if zone != prev_zone and not vessel.get("dark_since"):
+        # ── ZONE CHANGE (while visible, AIS on) ──
+        if zone != prev_zone and not vessel.get("dark_since") and not first_cycle:
             crossing = crossed_strait(prev_zone, zone)
             if crossing:
                 vname = vessel.get("name") or mmsi
-                log(f"TRANSIT: {vname} ({mmsi}) — {crossing} (visible)")
+                flag_str = f" [{vessel.get('flag_name','')}]" if vessel.get('flag_name') else ""
+                log(f"TRANSIT: {vname} ({mmsi}) — {crossing} (AIS-visible)")
+                msg = (
+                    f"🚢 STRAIT TRANSIT — {now_pt()}\n\n"
+                    f"Vessel: {vname}{flag_str} (MMSI: {mmsi})\n"
+                    f"Crossing: {crossing}\n"
+                    f"AIS: ON (fully visible)\n"
+                    f"Position: {lat:.3f}N {lon:.3f}E\n"
+                    f"Speed: {speed:.1f} kn\n"
+                    f"Destination: {destination or 'unknown'}"
+                )
+                alert(msg)
+                state["transit_events"].append({
+                    "mmsi": mmsi, "name": vname, "type": vessel.get("type",""),
+                    "crossing": crossing, "dark_minutes": 0,
+                    "from_lat": vessel.get("last_lat", lat), "from_lon": vessel.get("last_lon", lon),
+                    "from_zone": prev_zone, "to_lat": lat, "to_lon": lon, "to_zone": zone,
+                    "visible": True, "ts": now,
+                })
 
         # ── Update position + record history ──
         vessel["last_seen"] = vessel_ts
