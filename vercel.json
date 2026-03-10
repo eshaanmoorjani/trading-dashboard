@@ -6,6 +6,8 @@
   ],
   "routes": [
     { "src": "/api/state", "dest": "/api/state.py" },
+    { "src": "/api/vessel/([^/]+)", "dest": "/api/vessel.py?mmsi=$1" },
+    { "src": "/api/vessel", "dest": "/api/vessel.py" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
