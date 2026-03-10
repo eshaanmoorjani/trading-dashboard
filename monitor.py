@@ -397,6 +397,82 @@ def scan_full_area():
             log(f"Tile scan failed ({minlat}-{maxlat}, {minlon}-{maxlon}): {e}")
     return all_vessels
 
+def lookup_mmsi_global(mmsi):
+    """Look up a single vessel by MMSI globally using MyShipTracking free endpoint.
+    Returns (lat, lon, speed, name) or None if not found/dark."""
+    url = f"{SCRAPE_URL}?type=json&mmsi={mmsi}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT,
+                                                    "Referer": "https://www.myshiptracking.com/"})
+        resp = urllib.request.urlopen(req, timeout=10)
+        text = resp.read().decode().strip()
+        if not text or "ERROR" in text or text.startswith("0\t"):
+            return None
+        parts = text.split("\t")
+        if len(parts) < 6:
+            return None
+        lat = float(parts[4])
+        lon = float(parts[5])
+        speed = float(parts[6]) if len(parts) > 6 else 0
+        name = parts[3] if len(parts) > 3 and parts[3] != mmsi else None
+        if lat == 0.0 and lon == 0.0:
+            return None
+        return lat, lon, speed, name
+    except Exception:
+        return None
+
+def check_dark_vessels_globally(state):
+    """For vessels that went dark in the Strait/Gulf, check if they've reappeared anywhere in the world."""
+    vessels = state["vessels"]
+    now = now_ts()
+    dark_vessels = [
+        (mmsi, v) for mmsi, v in vessels.items()
+        if v.get("dark_since") and v.get("dark_alerted")
+    ]
+    if not dark_vessels:
+        return
+
+    log(f"Global MMSI check: {len(dark_vessels)} dark vessels...")
+    for mmsi, vessel in dark_vessels:
+        result = lookup_mmsi_global(mmsi)
+        if result is None:
+            continue
+        lat, lon, speed, name = result
+        vname = name or vessel.get("name") or mmsi
+        last_zone = vessel.get("zone", "STRAIT")
+        last_lat = vessel.get("last_lat", 0)
+        last_lon = vessel.get("last_lon", 0)
+        dark_duration_min = (now - vessel["dark_since"]) / 60
+
+        # Determine where they reappeared
+        in_gulf = (24.5 <= lat <= 30.0 and 48.0 <= lon <= 60.0)
+        region = "Persian Gulf/Hormuz area" if in_gulf else f"({lat:.2f}N, {lon:.2f}E) — outside Gulf"
+
+        msg = (
+            f"🌍 GLOBAL REAPPEARANCE — {now_pt()}\n\n"
+            f"Vessel: {vname} (MMSI: {mmsi})\n"
+            f"Was dark for: {dark_duration_min:.0f} minutes\n"
+            f"Last known: {last_zone} at {last_lat:.3f}N {last_lon:.3f}E\n"
+            f"Reappeared at: {region}\n"
+            f"Speed: {speed:.1f} kn\n\n"
+            f"{'🚢 Vessel cleared Hormuz and is now in open water.' if not in_gulf else '📍 Still in Gulf area — may have restarted transponder.'}"
+        )
+        log(f"GLOBAL-REAPPEAR: {vname} ({mmsi}) — dark {dark_duration_min:.0f}min, now at {lat:.3f},{lon:.3f}")
+        alert(msg)
+
+        # Update vessel state
+        vessel["dark_since"] = None
+        vessel["dark_alerted"] = False
+        vessel["last_lat"] = lat
+        vessel["last_lon"] = lon
+        vessel["last_seen"] = now
+        state["reappear_events"].append({
+            "mmsi": mmsi, "name": vname, "dark_minutes": dark_duration_min,
+            "reappear_lat": lat, "reappear_lon": lon,
+            "in_gulf": in_gulf, "ts": now,
+        })
+        time.sleep(1)  # rate limit between lookups
+
 # ── Core logic ─────────────────────────────────────────────────────────────────
 
 def process_scan(state, discovered, first_cycle=False):
@@ -605,6 +681,7 @@ def monitor(poll_minutes=POLL_INTERVAL_MINUTES):
             log(f"Scan found {len(discovered)} vessels in {elapsed:.1f}s")
 
             process_scan(state, discovered, first_cycle=(cycle == 0))
+            check_dark_vessels_globally(state)
             save_state(state)
             push_to_redis(state)
 
