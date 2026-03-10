@@ -64,6 +64,7 @@ class handler(BaseHTTPRequestHandler):
                     "lat": lat,
                     "lon": lon,
                     "zone": zone,
+                    "first_seen": v.get("first_seen", last_seen),
                     "last_seen": last_seen,
                     "dark_since": v.get("dark_since"),
                     "dark_minutes": (now - v["dark_since"]) / 60 if v.get("dark_since") else None,
