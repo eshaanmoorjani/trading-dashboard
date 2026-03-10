@@ -34,16 +34,21 @@ class handler(BaseHTTPRequestHandler):
             now = time.time()
             vessels = []
             for mmsi, v in state.get("vessels", {}).items():
-                if not v.get("last_lat") or not v.get("last_lon"):
+                lat = v.get("last_lat")
+                lon = v.get("last_lon")
+                if lat is None or lon is None:
                     continue
                 minutes_ago = (now - v.get("last_seen", now)) / 60
+                zone = v.get("zone", "")
                 vessels.append({
                     "mmsi": mmsi,
                     "name": v.get("name") or "Unknown",
                     "type": v.get("type") or "",
-                    "lat": v["last_lat"],
-                    "lon": v["last_lon"],
-                    "in_box": v.get("in_box", False),
+                    "flag": v.get("flag_name") or "",
+                    "lat": lat,
+                    "lon": lon,
+                    "zone": zone,
+                    "in_box": bool(zone),  # any vessel with a zone is in our coverage area
                     "dark_since": v.get("dark_since"),
                     "dark_minutes": (now - v["dark_since"]) / 60 if v.get("dark_since") else None,
                     "minutes_ago": round(minutes_ago, 1),
