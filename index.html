@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hormuz Strait Monitor</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'SF Mono', 'Fira Code', monospace; background: #0a0a0f; color: #c8c8d0; }
+  #map { width: 100%; height: 45vh; }
+
+  .header { background: #12121a; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #222; }
+  .header-left { display: flex; align-items: baseline; gap: 16px; }
+  .header h1 { font-size: 15px; color: #e0e0e8; letter-spacing: 1px; }
+  .tracking-since { font-size: 10px; color: #555; }
+  .tracking-since span { color: #888; }
+  .stats { display: flex; gap: 16px; }
+  .stat { text-align: center; min-width: 44px; }
+  .stat-val { font-size: 17px; font-weight: bold; }
+  .stat-label { font-size: 8px; text-transform: uppercase; color: #555; letter-spacing: 1px; }
+  .stat-divider { width: 1px; background: #222; margin: 2px 4px; }
+  .green { color: #4ade80; } .red { color: #f87171; } .yellow { color: #fbbf24; }
+  .blue { color: #60a5fa; } .cyan { color: #22d3ee; } .orange { color: #fb923c; } .dim { color: #888; }
+  .updated { font-size: 10px; color: #444; }
+
+  .bottom { display: flex; height: 55vh; }
+  .left-col { width: 55%; display: flex; flex-direction: column; border-right: 1px solid #1a1a24; position: relative; }
+  .right-col { width: 45%; display: flex; flex-direction: column; }
+
+  /* Vessel table */
+  .table-controls { padding: 8px 10px; display: flex; gap: 6px; align-items: center; border-bottom: 1px solid #1a1a24; flex-wrap: wrap; }
+  .filter-input { background: #1a1a24; border: 1px solid #333; color: #c8c8d0; padding: 4px 8px; border-radius: 3px; font-size: 11px; font-family: inherit; width: 180px; }
+  .filter-input::placeholder { color: #555; }
+  .sort-btn { background: #1a1a24; border: 1px solid #333; color: #888; padding: 3px 8px; border-radius: 3px; font-size: 10px; cursor: pointer; font-family: inherit; }
+  .sort-btn:hover { color: #ccc; border-color: #555; }
+  .sort-btn.active { color: #60a5fa; border-color: #60a5fa; }
+  .table-count { font-size: 10px; color: #555; margin-left: auto; }
+
+  .vessel-table { flex: 1; overflow-y: auto; }
+  .vtable { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .vtable th { position: sticky; top: 0; background: #12121a; color: #666; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; padding: 6px 8px; text-align: left; cursor: pointer; user-select: none; border-bottom: 1px solid #222; }
+  .vtable th:hover { color: #aaa; }
+  .vtable td { padding: 5px 8px; border-bottom: 1px solid #111; white-space: nowrap; }
+  .vtable tr { cursor: pointer; transition: background 0.1s; }
+  .vtable tr:hover { background: #1a1a28; }
+  .vtable tr.selected { background: #1e293b; }
+  .zone-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+
+  /* History overlay on the left col */
+  .history-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #0a0a0f; z-index: 10; display: flex; flex-direction: column; overflow: hidden; }
+  .history-overlay.hidden { display: none; }
+  .history-header { padding: 10px; border-bottom: 1px solid #1a1a24; display: flex; align-items: center; gap: 10px; }
+  .history-header h3 { font-size: 13px; color: #e0e0e8; flex: 1; }
+  .history-header .sub { font-size: 10px; color: #666; }
+  .history-close { background: none; border: 1px solid #333; color: #888; padding: 3px 10px; border-radius: 3px; font-size: 11px; cursor: pointer; font-family: inherit; }
+  .history-close:hover { color: #ccc; border-color: #555; }
+  .history-body { flex: 1; overflow-y: auto; }
+  .hist-row { display: flex; padding: 4px 10px; font-size: 10px; border-bottom: 1px solid #0f0f18; }
+  .hist-row:hover { background: #14141e; }
+  .hist-row .ht { color: #888; width: 140px; flex-shrink: 0; }
+  .hist-row .hz { width: 60px; flex-shrink: 0; }
+  .hist-row .hp { color: #666; width: 160px; flex-shrink: 0; }
+  .hist-row .hs { color: #555; }
+
+  /* Events panels in right col */
+  .events-tabs { display: flex; border-bottom: 1px solid #1a1a24; }
+  .events-tab { flex: 1; padding: 6px; text-align: center; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #555; cursor: pointer; border-bottom: 2px solid transparent; }
+  .events-tab:hover { color: #888; }
+  .events-tab.active { color: #e0e0e8; border-bottom-color: #60a5fa; }
+  .events-content { flex: 1; overflow-y: auto; padding: 8px; }
+  .event { padding: 6px 8px; margin-bottom: 4px; border-radius: 4px; font-size: 12px; background: #14141e; cursor: pointer; transition: background 0.15s; }
+  .event:hover { background: #1e293b; }
+  .event.selected-ev { background: #1e293b; outline: 1px solid #60a5fa; }
+  .event.transit { border-left: 3px solid #f87171; }
+  .event.entered { border-left: 3px solid #4ade80; }
+  .event.left-ev { border-left: 3px solid #fb923c; }
+  .event.dark { border-left: 3px solid #666; }
+  .event .name { color: #e0e0e8; font-weight: bold; }
+  .event .detail { color: #888; font-size: 11px; }
+  .empty-msg { color: #444; font-size: 12px; padding: 12px; text-align: center; }
+
+  .leaflet-popup-content { font-family: 'SF Mono', monospace; font-size: 12px; }
+  .legend { position: absolute; bottom: 20px; left: 20px; background: rgba(10,10,15,0.92); padding: 10px 14px; border-radius: 6px; z-index: 1000; font-size: 11px; border: 1px solid #222; }
+  .legend div { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <h1>HORMUZ STRAIT MONITOR</h1>
+    <div class="tracking-since">Tracking since <span id="since">—</span> <span id="calibrating" style="color:#fbbf24;"></span></div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="stat-val blue" id="s-total">-</div><div class="stat-label">Tracking</div></div>
+    <div class="stat"><div class="stat-val green" id="s-12h">-</div><div class="stat-label">Active 12h</div></div>
+    <div class="stat"><div class="stat-val dim" id="s-24h">-</div><div class="stat-label">Active 24h</div></div>
+    <div class="stat-divider"></div>
+    <div class="stat"><div class="stat-val green" id="s-gulf">-</div><div class="stat-label">Gulf</div></div>
+    <div class="stat"><div class="stat-val orange" id="s-strait">-</div><div class="stat-label">Strait</div></div>
+    <div class="stat"><div class="stat-val cyan" id="s-ocean">-</div><div class="stat-label">Ocean</div></div>
+    <div class="stat-divider"></div>
+    <div class="stat"><div class="stat-val cyan" id="s-entered">-</div><div class="stat-label">Entered</div></div>
+    <div class="stat"><div class="stat-val orange" id="s-left">-</div><div class="stat-label">Left</div></div>
+    <div class="stat-divider"></div>
+    <div class="stat"><div class="stat-val red" id="s-transit">-</div><div class="stat-label">Dark Transits</div></div>
+  </div>
+  <div class="updated" id="updated"></div>
+</div>
+
+<div id="map"></div>
+
+<div class="bottom">
+  <div class="left-col">
+    <div class="table-controls">
+      <input type="text" class="filter-input" id="vessel-filter" placeholder="Search name, MMSI, flag, type...">
+      <button class="sort-btn active" data-col="name">Name</button>
+      <button class="sort-btn" data-col="flag_name">Flag</button>
+      <button class="sort-btn" data-col="type">Type</button>
+      <button class="sort-btn" data-col="zone">Zone</button>
+      <button class="sort-btn" data-col="last_seen">Last Seen</button>
+      <button class="sort-btn" data-col="first_seen">First Seen</button>
+      <button class="sort-btn" data-col="minutes_ago">Staleness</button>
+      <span class="table-count" id="table-count"></span>
+    </div>
+    <div class="vessel-table">
+      <table class="vtable">
+        <thead><tr>
+          <th data-col="name">Name</th>
+          <th data-col="flag_name">Flag</th>
+          <th data-col="type">Type</th>
+          <th data-col="zone">Zone</th>
+          <th data-col="last_seen">Last Seen</th>
+          <th data-col="first_seen">First Seen</th>
+        </tr></thead>
+        <tbody id="vessel-tbody"></tbody>
+      </table>
+    </div>
+    <!-- History overlay slides over the table when a vessel is selected -->
+    <div class="history-overlay hidden" id="history-overlay">
+      <div class="history-header" id="history-header-content"></div>
+      <div class="history-body" id="history-body"></div>
+    </div>
+  </div>
+  <div class="right-col">
+    <div class="events-tabs">
+      <div class="events-tab active" data-tab="transits">Dark Transits</div>
+      <div class="events-tab" data-tab="entered">Entered</div>
+      <div class="events-tab" data-tab="left">Left</div>
+      <div class="events-tab" data-tab="dark">Signal Lost</div>
+      <div class="events-tab" data-tab="log">Log</div>
+    </div>
+    <div class="events-content" id="events-content"></div>
+  </div>
+</div>
+
+<script>
+const map = L.map('map').setView([26.5, 53.0], 6);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 18
+}).addTo(map);
+L.rectangle([[24.0, 47.0], [30.5, 60.0]], { color: '#3b82f6', weight: 1, fillOpacity: 0.01, dashArray: '5,5' }).addTo(map);
+L.rectangle([[25.5, 55.5], [27.0, 57.0]], { color: '#fb923c', weight: 2, fillOpacity: 0.06, dashArray: '4,4' }).addTo(map);
+L.marker([28.5, 50.0], {icon: L.divIcon({html: '<div style="color:#4ade80;font-size:11px;font-weight:bold;">GULF</div>', className: ''})}).addTo(map);
+L.marker([26.2, 56.2], {icon: L.divIcon({html: '<div style="color:#fb923c;font-size:11px;font-weight:bold;">STRAIT</div>', className: ''})}).addTo(map);
+L.marker([25.0, 58.5], {icon: L.divIcon({html: '<div style="color:#22d3ee;font-size:11px;font-weight:bold;">OCEAN</div>', className: ''})}).addTo(map);
+
+const legend = L.control({position: 'bottomleft'});
+legend.onAdd = () => { const d = L.DomUtil.create('div', 'legend'); d.innerHTML = `
+  <div><span class="dot" style="background:#4ade80"></span> Gulf</div>
+  <div><span class="dot" style="background:#fb923c"></span> Strait</div>
+  <div><span class="dot" style="background:#22d3ee"></span> Ocean</div>
+  <div><span class="dot" style="background:#f87171"></span> Signal lost</div>
+`; return d; };
+legend.addTo(map);
+
+let markers = {};
+let highlightMarker = null;
+let trackLine = null;
+let lastData = null;
+let sortCol = 'name';
+let sortAsc = true;
+let activeTab = 'transits';
+let selectedMmsi = null;
+
+const zoneColors = { GULF: '#4ade80', STRAIT: '#fb923c', OCEAN: '#22d3ee' };
+const typeNames = {'7': 'Cargo', '8': 'Tanker', '6': 'Passenger', '10': 'Fishing', '3': 'Vessel', '9': 'Other', '11': 'Tug', '0': ''};
+
+function createIcon(color, size) {
+  return L.divIcon({
+    html: `<div style="width:${size}px;height:${size}px;background:${color};border-radius:50%;border:1px solid rgba(255,255,255,0.3);box-shadow:0 0 ${size}px ${color}44;"></div>`,
+    iconSize: [size, size], iconAnchor: [size/2, size/2], className: ''
+  });
+}
+
+function fmtTime(ts) {
+  if (!ts) return '?';
+  const pt = new Date(ts * 1000 - 7 * 3600000);
+  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][pt.getUTCMonth()];
+  let h = pt.getUTCHours(); const ampm = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+  return `${mon} ${pt.getUTCDate()} ${h}:${pt.getUTCMinutes().toString().padStart(2,'0')} ${ampm} PT`;
+}
+
+function fmtAgo(ts) {
+  if (!ts) return '?';
+  const mins = (Date.now()/1000 - ts) / 60;
+  if (mins < 1) return 'now';
+  if (mins < 60) return Math.floor(mins) + 'm';
+  if (mins < 1440) return Math.floor(mins/60) + 'h';
+  return Math.floor(mins/1440) + 'd';
+}
+
+function closeHistory() {
+  document.getElementById('history-overlay').classList.add('hidden');
+  selectedMmsi = null;
+  if (highlightMarker) { map.removeLayer(highlightMarker); highlightMarker = null; }
+  if (trackLine) { map.removeLayer(trackLine); trackLine = null; }
+  document.querySelectorAll('.vtable tr').forEach(r => r.classList.remove('selected'));
+  document.querySelectorAll('.event').forEach(e => e.classList.remove('selected-ev'));
+}
+
+function selectVessel(mmsi) {
+  selectedMmsi = mmsi;
+  const v = lastData.vessels.find(x => x.mmsi === mmsi);
+
+  // Highlight on map
+  if (highlightMarker) map.removeLayer(highlightMarker);
+  if (trackLine) map.removeLayer(trackLine);
+  if (v) {
+    highlightMarker = L.circleMarker([v.lat, v.lon], { radius: 16, color: '#60a5fa', weight: 2, fillOpacity: 0.15 }).addTo(map);
+    map.setView([v.lat, v.lon], 8);
+    if (markers[mmsi]) markers[mmsi].openPopup();
+  }
+
+  // Highlight in table
+  document.querySelectorAll('.vtable tr').forEach(r => r.classList.remove('selected'));
+  const row = document.querySelector(`.vtable tr[data-mmsi="${mmsi}"]`);
+  if (row) { row.classList.add('selected'); row.scrollIntoView({block: 'nearest'}); }
+
+  // Show history overlay on the left
+  const overlay = document.getElementById('history-overlay');
+  const hdr = document.getElementById('history-header-content');
+  const body = document.getElementById('history-body');
+  overlay.classList.remove('hidden');
+  hdr.innerHTML = '<h3>Loading...</h3>';
+  body.innerHTML = '';
+
+  fetch(`/api/vessel/${mmsi}`).then(r => r.json()).then(vd => {
+    if (vd.error) {
+      hdr.innerHTML = `<h3>Vessel ${mmsi} not found</h3><button class="history-close" onclick="closeHistory()">Back</button>`;
+      return;
+    }
+    const typeName = typeNames[vd.type] || '';
+    const flagStr = vd.flag_name ? ' ['+vd.flag_name+']' : '';
+    hdr.innerHTML = `
+      <div style="flex:1">
+        <h3>${vd.name}${flagStr}${typeName ? ' <span style="color:#888;font-size:11px">('+typeName+')</span>' : ''}</h3>
+        <div class="sub">MMSI: ${vd.mmsi} | Flag: ${vd.flag_name||'?'} | Zone: ${vd.zone} | First: ${fmtTime(vd.first_seen)} | Last: ${fmtTime(vd.last_seen)}</div>
+      </div>
+      <button class="history-close" onclick="closeHistory()">Back to list</button>`;
+
+    const hist = vd.history || [];
+    if (hist.length === 0) {
+      body.innerHTML = '<div style="color:#444;font-size:12px;padding:20px;text-align:center;">No position history yet</div>';
+      return;
+    }
+
+    // Draw track on map
+    const latlngs = hist.filter(h => h.lat && h.lon).map(h => [h.lat, h.lon]);
+    if (latlngs.length > 1) {
+      trackLine = L.polyline(latlngs, { color: '#60a5fa', weight: 2, opacity: 0.6, dashArray: '4,4' }).addTo(map);
+    }
+
+    let html = '<div style="padding:6px 10px;font-size:10px;color:#555;">' + hist.length + ' logged positions</div>';
+    const reversed = hist.slice().reverse();
+    html += reversed.map(h => {
+      const zc = zoneColors[h.zone] || '#555';
+      return `<div class="hist-row">
+        <span class="ht">${fmtTime(h.ts)}</span>
+        <span class="hz"><span class="zone-dot" style="background:${zc}"></span>${h.zone}</span>
+        <span class="hp">${h.lat.toFixed(4)}N ${h.lon.toFixed(4)}E</span>
+        <span class="hs">${h.speed != null ? h.speed.toFixed(1) + ' kn' : ''}</span>
+      </div>`;
+    }).join('');
+    body.innerHTML = html;
+  });
+}
+
+function renderTable() {
+  if (!lastData) return;
+  const filter = (document.getElementById('vessel-filter').value || '').toLowerCase();
+  let vessels = lastData.vessels.filter(v => {
+    if (!filter) return true;
+    return (v.name||'').toLowerCase().includes(filter) ||
+           v.mmsi.toLowerCase().includes(filter) ||
+           (typeNames[v.type]||'').toLowerCase().includes(filter) ||
+           (v.flag_name||'').toLowerCase().includes(filter) ||
+           (v.zone||'').toLowerCase().includes(filter);
+  });
+
+  vessels.sort((a, b) => {
+    let va, vb;
+    switch(sortCol) {
+      case 'name': va = (a.name||'').toLowerCase(); vb = (b.name||'').toLowerCase(); return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      case 'flag_name': va = (a.flag_name||'ZZZ').toLowerCase(); vb = (b.flag_name||'ZZZ').toLowerCase(); return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      case 'type': va = typeNames[a.type]||''; vb = typeNames[b.type]||''; return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      case 'zone': va = a.zone||''; vb = b.zone||''; return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      case 'last_seen': return sortAsc ? (a.last_seen||0)-(b.last_seen||0) : (b.last_seen||0)-(a.last_seen||0);
+      case 'first_seen': return sortAsc ? (a.first_seen||0)-(b.first_seen||0) : (b.first_seen||0)-(a.first_seen||0);
+      case 'minutes_ago': return sortAsc ? (a.minutes_ago||0)-(b.minutes_ago||0) : (b.minutes_ago||0)-(a.minutes_ago||0);
+      default: return 0;
+    }
+  });
+
+  document.getElementById('table-count').textContent = vessels.length + ' vessels';
+
+  const tbody = document.getElementById('vessel-tbody');
+  tbody.innerHTML = vessels.map(v => {
+    const zc = zoneColors[v.zone] || '#555';
+    const sel = v.mmsi === selectedMmsi ? ' selected' : '';
+    return `<tr data-mmsi="${v.mmsi}" class="${sel}" onclick="selectVessel('${v.mmsi}')">
+      <td>${v.name}</td>
+      <td style="font-size:10px;color:#999;">${v.flag_name||'—'}</td>
+      <td>${typeNames[v.type]||''}</td>
+      <td><span class="zone-dot" style="background:${zc}"></span>${v.zone}</td>
+      <td>${fmtAgo(v.last_seen)}</td>
+      <td>${fmtTime(v.first_seen)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderEvents() {
+  const el = document.getElementById('events-content');
+  if (!lastData) { el.innerHTML = ''; return; }
+
+  if (activeTab === 'transits') {
+    const items = lastData.transit_events.slice().reverse().slice(0, 30);
+    el.innerHTML = items.length ? items.map(e => {
+      const sel = e.mmsi === selectedMmsi ? ' selected-ev' : '';
+      return `<div class="event transit${sel}" onclick="selectVessel('${e.mmsi}')"><span class="name">${e.name||e.mmsi}</span><br><span class="detail">${e.crossing} | dark ${e.dark_minutes.toFixed(0)}min | ${fmtTime(e.ts)}</span></div>`;
+    }).join('') : '<div class="empty-msg">No dark transits yet</div>';
+  } else if (activeTab === 'entered') {
+    const items = lastData.arrival_events.slice().reverse().slice(0, 50);
+    el.innerHTML = items.length ? items.map(e => {
+      const tn = typeNames[e.type]||'';
+      const fl = e.flag_name ? ' ['+e.flag_name+']' : '';
+      const sel = e.mmsi === selectedMmsi ? ' selected-ev' : '';
+      return `<div class="event entered${sel}" onclick="selectVessel('${e.mmsi}')"><span class="name">${e.name||e.mmsi}</span>${fl}${tn?' <span class="detail">('+tn+')</span>':''}<br><span class="detail">${e.zone} | ${fmtTime(e.ts)}</span></div>`;
+    }).join('') : '<div class="empty-msg">No new vessels entered</div>';
+  } else if (activeTab === 'left') {
+    const items = lastData.departure_events.slice().reverse().slice(0, 50);
+    el.innerHTML = items.length ? items.map(e => {
+      const sel = e.mmsi === selectedMmsi ? ' selected-ev' : '';
+      return `<div class="event left-ev${sel}" onclick="selectVessel('${e.mmsi}')"><span class="name">${e.name||e.mmsi}</span><br><span class="detail">${e.zone} | last ${fmtTime(e.last_seen)}</span></div>`;
+    }).join('') : '<div class="empty-msg">No vessels have left</div>';
+  } else if (activeTab === 'dark') {
+    const items = lastData.vessels.filter(v => v.dark_since).sort((a,b) => b.dark_minutes - a.dark_minutes);
+    el.innerHTML = items.length ? items.map(v => {
+      const sel = v.mmsi === selectedMmsi ? ' selected-ev' : '';
+      return `<div class="event dark${sel}" onclick="selectVessel('${v.mmsi}')"><span class="name">${v.name}</span><br><span class="detail">${v.zone} | ${v.dark_minutes.toFixed(0)}min | ${fmtTime(v.last_seen)}</span></div>`;
+    }).join('') : '<div class="empty-msg">All vessels transmitting</div>';
+  } else if (activeTab === 'log') {
+    fetch('/api/log').then(r => r.json()).then(d => {
+      el.innerHTML = d.lines.reverse().slice(0, 50).map(l => `<div style="font-size:10px;color:#666;padding:1px 0;white-space:nowrap;">${l}</div>`).join('');
+    });
+    return;
+  }
+}
+
+// Sort buttons
+document.querySelectorAll('.sort-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const col = btn.dataset.col;
+    if (sortCol === col) { sortAsc = !sortAsc; } else { sortCol = col; sortAsc = true; }
+    document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderTable();
+  });
+});
+
+// Table header sort
+document.querySelectorAll('.vtable th').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (sortCol === col) { sortAsc = !sortAsc; } else { sortCol = col; sortAsc = true; }
+    document.querySelectorAll('.sort-btn').forEach(b => b.classList.toggle('active', b.dataset.col === col));
+    renderTable();
+  });
+});
+
+document.getElementById('vessel-filter').addEventListener('input', () => renderTable());
+
+// Event tabs
+document.querySelectorAll('.events-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.events-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    activeTab = tab.dataset.tab;
+    renderEvents();
+  });
+});
+
+function refresh() {
+  fetch('/api/state').then(r => r.json()).then(data => {
+    lastData = data;
+
+    document.getElementById('s-total').textContent = data.total_tracked;
+    document.getElementById('s-12h').textContent = data.active_12h;
+    document.getElementById('s-24h').textContent = data.active_24h;
+    document.getElementById('s-gulf').textContent = data.zones.GULF || 0;
+    document.getElementById('s-strait').textContent = data.zones.STRAIT || 0;
+    document.getElementById('s-ocean').textContent = data.zones.OCEAN || 0;
+    document.getElementById('s-entered').textContent = data.arrival_events.length;
+    document.getElementById('s-left').textContent = data.departure_events.length;
+    document.getElementById('s-transit').textContent = data.transit_events.length;
+    document.getElementById('updated').textContent = fmtTime(Date.now()/1000);
+    if (data.started_at) document.getElementById('since').textContent = fmtTime(data.started_at);
+    const calEl = document.getElementById('calibrating');
+    if (data.calibrating) {
+      const minsLeft = Math.ceil((data.started_at + 3600 - Date.now()/1000) / 60);
+      calEl.textContent = '(calibrating — ' + minsLeft + 'min until arrival tracking)';
+    } else {
+      calEl.textContent = '';
+    }
+
+    // Map
+    const seen = new Set();
+    data.vessels.forEach(v => {
+      seen.add(v.mmsi);
+      let color = zoneColors[v.zone] || '#555';
+      let size = 5;
+      if (v.dark_since) { color = '#f87171'; size = 8; }
+      if (v.zone === 'STRAIT') size = 7;
+
+      const tn = typeNames[v.type]||'';
+      const fl = v.flag_name ? ' ['+v.flag_name+']' : '';
+      const dest = v.destination ? `<br>Dest: ${v.destination}` : '';
+      const popup = `<b>${v.name}</b>${fl}${tn?' ('+tn+')':''}<br>MMSI: ${v.mmsi}<br>Zone: ${v.zone}${dest}<br>` +
+        `${v.lat.toFixed(3)}N, ${v.lon.toFixed(3)}E<br>Last ping: ${fmtTime(v.last_seen)}` +
+        (v.dark_minutes ? `<br><b style="color:#f87171">Signal lost ${v.dark_minutes.toFixed(0)}min</b>` : '');
+
+      if (markers[v.mmsi]) {
+        markers[v.mmsi].setLatLng([v.lat, v.lon]).setIcon(createIcon(color, size)).setPopupContent(popup);
+      } else {
+        markers[v.mmsi] = L.marker([v.lat, v.lon], {icon: createIcon(color, size)}).addTo(map).bindPopup(popup);
+      }
+    });
+    Object.keys(markers).forEach(m => { if (!seen.has(m)) { map.removeLayer(markers[m]); delete markers[m]; } });
+
+    renderTable();
+    renderEvents();
+  });
+}
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>
