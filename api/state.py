@@ -28,40 +28,64 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             state = get_state() or {
-                "vessels": {}, "dark_events": [], "reappear_events": [], "spoof_events": []
+                "vessels": {}, "dark_events": [], "reappear_events": [],
+                "spoof_events": [], "transit_events": [], "arrival_events": [],
+                "departure_events": [],
             }
 
             now = time.time()
             vessels = []
+            zones = {"GULF": 0, "STRAIT": 0, "OCEAN": 0}
+            active_12h = 0
+            active_24h = 0
+
             for mmsi, v in state.get("vessels", {}).items():
                 lat = v.get("last_lat")
                 lon = v.get("last_lon")
                 if lat is None or lon is None:
                     continue
-                minutes_ago = (now - v.get("last_seen", now)) / 60
-                zone = v.get("zone", "")
+
+                last_seen = v.get("last_seen", now)
+                age = now - last_seen
+                if age < 43200: active_12h += 1
+                if age < 86400: active_24h += 1
+
+                zone = v.get("zone", "GULF")
+                if zone in zones:
+                    zones[zone] += 1
+
                 vessels.append({
                     "mmsi": mmsi,
                     "name": v.get("name") or "Unknown",
                     "type": v.get("type") or "",
-                    "flag": v.get("flag_name") or "",
+                    "flag": v.get("flag") or "",
+                    "flag_name": v.get("flag_name") or "",
+                    "destination": v.get("destination") or "",
                     "lat": lat,
                     "lon": lon,
                     "zone": zone,
-                    "in_box": bool(zone),  # any vessel with a zone is in our coverage area
+                    "last_seen": last_seen,
                     "dark_since": v.get("dark_since"),
                     "dark_minutes": (now - v["dark_since"]) / 60 if v.get("dark_since") else None,
-                    "minutes_ago": round(minutes_ago, 1),
+                    "minutes_ago": round(age / 60, 1),
                 })
 
             result = {
                 "vessels": vessels,
+                "zones": zones,
+                "total_tracked": len(vessels),
+                "active_12h": active_12h,
+                "active_24h": active_24h,
                 "dark_events": state.get("dark_events", [])[-50:],
                 "reappear_events": state.get("reappear_events", [])[-50:],
                 "spoof_events": state.get("spoof_events", [])[-50:],
-                "total_tracked": len(state.get("vessels", {})),
-                "in_box": sum(1 for v in vessels if v["in_box"]),
+                "transit_events": state.get("transit_events", [])[-50:],
+                "arrival_events": state.get("arrival_events", [])[-50:],
+                "departure_events": state.get("departure_events", [])[-50:],
+                "in_box": sum(1 for v in vessels),
                 "dark_count": sum(1 for v in vessels if v.get("dark_since")),
+                "started_at": state.get("started_at", now),
+                "calibrating": state.get("calibrating", False),
                 "ts": now,
             }
 
@@ -74,7 +98,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
         except Exception as e:
-            body = json.dumps({"error": str(e)}).encode()
+            body = json.dumps({"error": str(e), "vessels": [], "zones": {"GULF": 0, "STRAIT": 0, "OCEAN": 0}}).encode()
             self.send_response(500)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -82,4 +106,4 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def log_message(self, format, *args):
-        pass  # suppress default logging
+        pass
