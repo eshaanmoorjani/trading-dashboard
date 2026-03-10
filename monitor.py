@@ -78,6 +78,8 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
 SLACK_CHANNEL = os.environ.get("SLACK_CHANNEL", "")
+UPSTASH_URL = os.environ.get("KV_REST_API_URL", "")
+UPSTASH_TOKEN = os.environ.get("KV_REST_API_TOKEN", "")
 
 SCRAPE_URL = "https://www.myshiptracking.com/requests/vesselonmap.php"
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -321,6 +323,26 @@ def alert(text):
     """Send to both Telegram and Slack."""
     send_telegram(text)
     send_slack(text)
+
+def push_to_redis(state):
+    """Push vessel state to Upstash Redis for the Vercel frontend."""
+    if not UPSTASH_URL or not UPSTASH_TOKEN:
+        return
+    try:
+        import json as _json
+        payload = _json.dumps(state).encode()
+        url = f"{UPSTASH_URL}/set/hormuz_state"
+        req = urllib.request.Request(
+            url, data=payload,
+            headers={
+                "Authorization": f"Bearer {UPSTASH_TOKEN}",
+                "Content-Type": "application/json",
+            }
+        )
+        urllib.request.urlopen(req, timeout=8)
+        log("Redis: state pushed")
+    except Exception as e:
+        log(f"Redis push failed: {e}")
 
 # ── Scraping ───────────────────────────────────────────────────────────────────
 
@@ -584,6 +606,7 @@ def monitor(poll_minutes=POLL_INTERVAL_MINUTES):
 
             process_scan(state, discovered, first_cycle=(cycle == 0))
             save_state(state)
+            push_to_redis(state)
 
             # Summary
             zones = {}
