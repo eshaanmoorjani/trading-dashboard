@@ -1,0 +1,8 @@
+venv/
+*.log
+hormuz_vessels.json
+vessels.json
+__pycache__/
+*.pyc
+.env
+.DS_Store
